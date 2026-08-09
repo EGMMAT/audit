@@ -101,6 +101,14 @@
   /* ---- Finding group card ---- */
   .fgroup{border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff;
     box-shadow:0 1px 2px rgba(20,40,80,.04); margin-bottom:14px; transition:background .15s}
+  /* Metallic color-fill when a finding is confirmed/collapsed — matches the risk summary cards */
+  .fgroup.collapsed{
+    border-color:rgba(0,0,0,.18);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -2px 3px rgba(0,0,0,.18), 0 1px 3px rgba(0,0,0,.18)}
+  .fgroup.collapsed.risk-critical{background:linear-gradient(155deg,#ff6b5a 0%,#EE0000 30%,#a80000 62%,#EE0000 85%,#ff8a7a 100%); color:#fff}
+  .fgroup.collapsed.risk-substantial{background:linear-gradient(155deg,#ffe19a 0%,#FFC000 30%,#b37d00 62%,#FFC000 85%,#ffe6ab 100%); color:#111}
+  .fgroup.collapsed.risk-moderate{background:linear-gradient(155deg,#ffffc2 0%,#FFFF00 30%,#c6c600 62%,#FFFF00 85%,#ffffcf 100%); color:#111}
+  .fgroup.collapsed.risk-low{background:linear-gradient(155deg,#c9f0a3 0%,#92D050 30%,#5b8f2e 62%,#92D050 85%,#d4f4b3 100%); color:#111}
   .fhead{display:flex; align-items:center; gap:10px; padding:9px 10px; background:#f7f9fd; border-bottom:1px solid var(--line)}
   .fgroup.collapsed .fhead{background:transparent; border-bottom-color:rgba(0,0,0,.15)}
   .fhead .fno-badge{font-weight:800; color:var(--navy); font-size:14px; min-width:26px}
@@ -298,8 +306,6 @@ const RISKS = {
 const TAGS = ['NC','OB','Finding'];
 /* Secondary sort after risk: NC > OB > Finding */
 const TAG_ORDER = { NC:0, OB:1, Finding:2 };
-const CSS_RISK = {critical:'#EE0000',substantial:'#FFC000',moderate:'#FFFF00',low:'#92D050'};
-const CSS_TEXT = {critical:'#fff',substantial:'#111',moderate:'#111',low:'#111'};
 
 let state = { meta:{vessel:'',cn:'',date:'',auditor:''}, photos: [], findings: {}, collapsed: {} };
 let uid = 1;
@@ -651,15 +657,14 @@ function groupCard(g){
         </div>
       </div>`;
 
-  // Always attach risk-* class so print CSS can color the card even if collapse races on mobile
+  // Always attach risk-* class so print CSS can color the card even if collapse races on mobile.
+  // Screen view uses the metallic gradient defined for .fgroup.collapsed.risk-* in <style>;
+  // no inline style needed here anymore.
   const cls = collapsed
     ? `fgroup collapsed risk-${first.risk}`
     : `fgroup risk-${first.risk}`;
-  const style = collapsed
-    ? `style="background:${CSS_RISK[first.risk]};color:${CSS_TEXT[first.risk]}"`
-    : '';
 
-  return `<div class="${cls}" ${style} data-risk="${first.risk}">
+  return `<div class="${cls}" data-risk="${first.risk}">
     <div class="fhead">${head}</div>
     ${descBlock}
     <div class="fphotos">
