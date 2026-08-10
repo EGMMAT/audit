@@ -66,6 +66,7 @@
     color:#fff; font-size:11px; font-weight:800; font-family:Georgia,"Times New Roman",serif;
     line-height:1; box-shadow:0 1px 1px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.25)}
 
+
   main{max-width:920px; margin:0 auto; padding:20px 18px 100px}
 
   .panel{background:var(--card); border:1px solid var(--line); border-radius:12px;
@@ -236,7 +237,7 @@
 <body>
 <header class="appbar">
   <h1>內稽照片彙整工具</h1>
-  <span class="sub">Internal Audit Photo Builder · 離線可用</span>
+  <span class="sub">Internal Audit Photo Builder</span>
   <span class="savestat no-print" id="saveStat"></span>
   <span class="spacer"></span>
   <button class="btn warn sm no-print" onclick="clearCache()">📄 還原成空白表單</button>
@@ -778,6 +779,7 @@ function clearAllStorage(){
   try{ localStorage.removeItem('auditPhotoReport'); }catch(e){}
   try{ sessionStorage.removeItem('auditPhotoReportPhotos'); }catch(e){}
 }
+
 function clearCache(){
   if(!confirm('確定要清除所有已儲存的資料嗎？此動作無法復原，畫面將回到全新狀態。')) return;
   try{ clearTimeout(saveTimer); }catch(e){}
