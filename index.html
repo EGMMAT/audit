@@ -1227,37 +1227,57 @@ function fileToDataURL(file){
    mode='gallery': no capture attribute, opens the normal photo library / file picker.
    iOS does not allow multi-select in camera mode (capture implies single shot), so multiple is only
    set for gallery mode.
-   The input is mounted (hidden) in the document before .click() — iOS Safari can silently fail with
-   an opaque "Script error." if .click() is called on a file input that was never attached to the DOM,
-   especially when the capture attribute is set. */
-function pickImageFiles(mode, onFiles){
-  const inp=document.createElement('input');
-  inp.type='file';
-  inp.accept='image/*';
-  if(mode==='camera'){
-    inp.capture='environment';
+   Implementation note: uses a <label for="..."> bound to the input, rather than calling input.click()
+   directly from JS. Some iOS WebKit-based browsers (observed: Edge on iOS) treat a programmatic
+   .click() on a file input — especially one positioned off-screen — as not being a "real" user
+   gesture, and silently fail to open the camera (or, per Apple's own developer forums, can crash the
+   host app's WKWebView). A <label> click is handled natively by the browser as equivalent to clicking
+   the input itself, without any JS in the trigger path, which is the more reliable pattern across
+   iOS browsers. The input stays in the DOM (0x0 size, opacity 0, NOT off-screen) rather than being
+   created/destroyed per call, since some WebKit versions are also flaky about inputs added and
+   clicked in the same tick. */
+let __pickImageFilesCallback = null;
+function __ensurePickImageInput(mode){
+  const id = mode === 'camera' ? '__pickCameraInput' : '__pickGalleryInput';
+  let inp = document.getElementById(id);
+  if(inp) return inp;
+  inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.id = id;
+  if(mode === 'camera'){
+    inp.capture = 'environment';
   } else {
-    inp.multiple=true;
+    inp.multiple = true;
   }
-  inp.style.position='fixed';
-  inp.style.top='-9999px';
-  inp.style.left='-9999px';
-  inp.style.opacity='0';
-  let cleaned=false;
-  const cleanup=()=>{
-    if(cleaned) return;
-    cleaned=true;
-    if(inp.parentNode) inp.parentNode.removeChild(inp);
-  };
-  inp.onchange=()=>{
-    if(inp.files && inp.files.length) onFiles(inp.files);
-    cleanup();
+  // Kept in normal document flow (not position:fixed/off-screen) — 0-size and invisible, but still
+  // a "real" element the OS considers part of the page, which matters for some WebKit versions.
+  inp.style.width = '0';
+  inp.style.height = '0';
+  inp.style.opacity = '0';
+  inp.style.overflow = 'hidden';
+  inp.style.position = 'absolute';
+  inp.tabIndex = -1;
+  inp.setAttribute('aria-hidden', 'true');
+  inp.onchange = () => {
+    const cb = __pickImageFilesCallback;
+    __pickImageFilesCallback = null;
+    if(inp.files && inp.files.length && cb) cb(inp.files);
+    inp.value = ''; // allow re-selecting the same file next time
   };
   document.body.appendChild(inp);
-  inp.click();
-  // Safety net: if the user cancels the picker, no 'change' event may fire on some iOS versions.
-  // Remove the (harmless, invisible) leftover input after a generous delay either way.
-  setTimeout(cleanup, 60000);
+  return inp;
+}
+function pickImageFiles(mode, onFiles){
+  const inp = __ensurePickImageInput(mode);
+  __pickImageFilesCallback = onFiles;
+  // Trigger via a synthetic label click rather than inp.click() directly — see note above.
+  const label = document.createElement('label');
+  label.setAttribute('for', inp.id);
+  label.style.display = 'none';
+  document.body.appendChild(label);
+  label.click();
+  label.remove();
 }
 async function addPhotos(files){
   const list=[...files].filter(f=>f.type.startsWith('image/'));
