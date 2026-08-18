@@ -1,14 +1,21 @@
-/* Service Worker for 內稽工具 (audit_tool.html)
-   ============================================
-   Deployment: this file MUST sit in the same folder as audit_tool.html. The browser only allows
-   a service worker to control requests within its own folder and below (its "scope"), so if this
-   file is uploaded to a different path than the HTML, registration will still succeed but caching
-   will not actually intercept the HTML's own requests.
+/* Service Worker for 內稽工具 (deployed as index.html)
+   ====================================================
+   Deployment: this file MUST sit in the same folder as the tool's HTML file. The browser only
+   allows a service worker to control requests within its own folder and below (its "scope"), so
+   if this file is uploaded to a different path than the HTML, registration will still succeed but
+   caching will not actually intercept the HTML's own requests.
 
-   What this does: on first successful online visit, caches audit_tool.html itself (there is
+   IMPORTANT — filename in APP_SHELL below must match whatever this tool is actually deployed as.
+   As of this version, that's index.html (opened via a bare directory URL with no filename, e.g.
+   https://egmmat.github.io/audit/). Both that bare URL and the resolved index.html filename are
+   cached below, since Cache.addAll() requires every listed URL to be independently fetchable or
+   the ENTIRE install silently fails — which is what caused offline mode to never actually turn on
+   in an earlier version of this file that only listed a mismatched audit_tool.html filename.
+
+   What this does: on first successful online visit, caches the tool's own HTML file (there is
    nothing else to cache — JSZip and all styles/scripts are already inlined in the single HTML
    file, and the tool makes no other network requests). On every subsequent visit — online or
-   offline — requests for the HTML are served from that cache first, so the tool keeps working
+   offline — requests for that HTML are served from the cache first, so the tool keeps working
    with no network connection.
 
    What this does NOT do: it does not cache or sync any of the person's audit data. All project
@@ -22,13 +29,16 @@
    re-establish itself after a long gap.
 */
 
-const CACHE_VERSION = 'audit-tool-v1';
+const CACHE_VERSION = 'audit-tool-v2';
 const CACHE_NAME = `audit-tool-cache-${CACHE_VERSION}`;
 
 // Cache relative to this file's own folder, so it works regardless of what sub-path the tool is
-// deployed under (e.g. https://egmmat.github.io/audit/audit_tool.html).
+// deployed under. Both entries point at the same actual file — the bare './' covers the exact URL
+// requested when the tool is opened as https://egmmat.github.io/audit/ (no filename typed), and
+// './index.html' covers the resolved filename in case anything links to it explicitly.
 const APP_SHELL = [
-  './audit_tool.html',
+  './',
+  './index.html',
 ];
 
 self.addEventListener('install', (event) => {
