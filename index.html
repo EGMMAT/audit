@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>內稽工具 · Aether Audit Suite</title>
+<!-- PWA: manifest embedded as a data: URI so the tool stays deployable as (at most) two files
+     (this HTML + sw.js) rather than three. iOS relies more on the meta tags below than on the
+     manifest itself, but Android/Chrome installability checks want a real manifest link. -->
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Evergreen%20%E5%85%A7%E7%A8%BD%E5%B7%A5%E5%85%B7%22%2C%22short_name%22%3A%22%E5%85%A7%E7%A8%BD%E5%B7%A5%E5%85%B7%22%2C%22start_url%22%3A%22.%2Faudit_tool.html%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23eef1f6%22%2C%22theme_color%22%3A%22%23006633%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%2C%253Csvg%2520xmlns%3D%2527http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%2527%2520viewBox%3D%25270%25200%2520192%2520192%2527%253E%253Crect%2520width%3D%2527192%2527%2520height%3D%2527192%2527%2520fill%3D%2527%2523006633%2527%2F%253E%253Ctext%2520x%3D%252796%2527%2520y%3D%2527120%2527%2520font-size%3D%252790%2527%2520fill%3D%2527white%2527%2520text-anchor%3D%2527middle%2527%2520font-family%3D%2527sans-serif%2527%253E%25E7%25A8%25BD%253C%2Ftext%253E%253C%2Fsvg%253E%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D">
+<meta name="theme-color" content="#006633">
+<!-- iOS-specific: Safari reads these meta tags for standalone/home-screen behavior more reliably
+     than the web manifest. apple-mobile-web-app-capable makes "Add to Home Screen" launch in
+     standalone mode (no browser chrome) instead of a plain Safari tab. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="內稽工具">
 <style>
 :root{
   --navy:#006633; --navy2:#008040; --deep:#002060;
@@ -3536,6 +3547,91 @@ function boot(){
   updateExportBtn();
 }
 boot();
+
+/* ===== PWA: Service Worker registration =====
+   Caches this HTML file (and jszip, already inline so nothing extra to cache there) so the tool
+   keeps working after the page has been opened at least once while online. Requires sw.js to sit
+   in the SAME folder as this HTML file when deployed — both files must be uploaded together.
+   Registration failures (e.g. sw.js missing, or a browser with no Service Worker support) are
+   swallowed silently: the tool must keep working as a normal online-only page in that case, exactly
+   as before this feature existed. This is deliberately non-fatal.
+
+   IMPORTANT — for this to detect an update at all, sw.js's CACHE_VERSION constant must change on
+   every deploy that should trigger it. The browser only recognizes an update when sw.js itself is
+   byte-different from what it already has; changing only this HTML does nothing on its own. This
+   version bump is handled automatically as part of preparing each delivered update — deploy the
+   files you're given as-is, no manual editing needed.
+
+   Update behavior: once a new service worker has installed and skipWaiting() has taken effect
+   (confirmed via the 'controllerchange' event — NOT just the 'installed' state, which can fire
+   before the new worker actually has control), the page reloads itself automatically and silently
+   — no toast, no prompt. This never fires offline (no new sw.js can be fetched without a network)
+   and never fires on a plain first visit (no prior controller exists yet to be replaced).
+
+   Reliability note: a naive implementation that only listens for the registration's 'updatefound'
+   event can miss updates that were already detected before the listener was attached (a known
+   Service Worker API pitfall). This checks reg.waiting / reg.installing directly right after
+   registration succeeds, in addition to listening for future updates, to close that gap.
+
+   Before reloading, any pending debounced autosave (see scheduleSave(), 400ms debounce) is flushed
+   immediately so an in-progress edit isn't lost in the gap between the last keystroke and the
+   scheduled save. */
+if('serviceWorker' in navigator){
+  // Tracks whether this browser has EVER successfully completed a Service Worker installation for
+  // this tool, PRIOR to this current page load. Read exactly once, before registration starts —
+  // this snapshot is what __swDoAutoReload checks for the rest of this page's lifetime.
+  //
+  // This must NOT be re-read from localStorage on every check (a tempting "fix" for a different bug
+  // encountered while building this): this same page load also WRITES the flag to '1' once its own
+  // first install completes (see below), and that write can land before this page's own
+  // controllerchange/statechange fires. Re-reading at check-time would then see this page's own
+  // freshly-written '1' and wrongly conclude "this is an update" about its own first-ever install.
+  // A snapshot taken before any writes happen avoids that self-referential race entirely.
+  const FIRST_INSTALL_DONE_KEY = '__swFirstInstallDone';
+  const hadPriorInstall = !!localStorage.getItem(FIRST_INSTALL_DONE_KEY);
+
+  let __swReloadArmed = false;
+  const __swDoAutoReload = () => {
+    if(!hadPriorInstall) return; // this page's own first-ever install — nothing to update FROM
+    if(__swReloadArmed) return; // avoid double-firing if multiple signals arrive
+    __swReloadArmed = true;
+    const lastReload = Number(sessionStorage.getItem('__swLastAutoReload')||0);
+    if(Date.now() - lastReload < 10000) return; // loop guard: at most once per 10s per tab
+    sessionStorage.setItem('__swLastAutoReload', String(Date.now()));
+    clearTimeout(saveTimer);
+    try{ autosave(); }catch(e){}
+    location.reload();
+  };
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').then(reg=>{
+      // Mark this browser as having completed at least one install, once the worker is genuinely
+      // controlling the page. Safe to call repeatedly — setItem with the same value is a no-op cost.
+      navigator.serviceWorker.ready.then(()=>{
+        localStorage.setItem(FIRST_INSTALL_DONE_KEY, '1');
+      });
+
+      // Reload only once the new worker has ACTUALLY taken control (skipWaiting done), not merely
+      // "installed" — installed-but-not-yet-controlling would reload into a page still served by
+      // the old worker, defeating the point.
+      navigator.serviceWorker.addEventListener('controllerchange', __swDoAutoReload);
+
+      const watchInstalling = (worker) => {
+        if(!worker) return;
+        worker.addEventListener('statechange', () => {
+          if(worker.state === 'activated' && navigator.serviceWorker.controller){
+            __swDoAutoReload();
+          }
+        });
+      };
+
+      // Catch an update that was already installing/waiting before this listener was attached.
+      watchInstalling(reg.installing);
+      watchInstalling(reg.waiting);
+      // Catch any future update detected during this session.
+      reg.addEventListener('updatefound', () => watchInstalling(reg.installing));
+    }).catch(()=>{ /* offline support simply unavailable; tool still works online as before */ });
+  });
+}
 </script>
 </body>
 </html>
